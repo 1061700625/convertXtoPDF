@@ -639,6 +639,16 @@ HTML_TEMPLATE = """
             const pendingFiles = files.filter(f => f.status === 'pending');
             if (pendingFiles.length === 0) return;
             
+            // Check total file size before upload (max 100MB)
+            const totalSize = pendingFiles.reduce((sum, f) => sum + f.file.size, 0);
+            const maxSize = 100 * 1024 * 1024; // 100MB
+            if (totalSize > maxSize) {
+                const sizeMB = (totalSize / 1024 / 1024).toFixed(2);
+                alert(`⚠️ 文件总大小超限！\n\n当前大小：${sizeMB} MB\n最大限制：100 MB\n\n请减少文件数量或使用更小的文件。`);
+                convertBtn.disabled = false;
+                return;
+            }
+            
             progressContainer.style.display = 'block';
             downloadSection.style.display = 'none';
             convertBtn.disabled = true;
@@ -660,6 +670,13 @@ HTML_TEMPLATE = """
                     method: 'POST',
                     body: formData
                 });
+                
+                // Check if response is JSON
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    // Server returned HTML error (likely 413 Request Entity Too Large)
+                    throw new Error(`服务器返回错误 (HTTP ${response.status})\n\n可能是文件总大小超过 100MB 限制。\n\n当前文件总大小：${(totalSize / 1024 / 1024).toFixed(2)} MB`);
+                }
                 
                 const result = await response.json();
                 
@@ -716,13 +733,20 @@ HTML_TEMPLATE = """
                         progressFill.style.transition = 'width 0.3s ease';
                     }, 2000);
                 } else {
-                    alert('Conversion failed: ' + result.error);
+                    alert('❌ 转换失败：' + result.error);
                     progressContainer.style.display = 'none';
                     progressFill.style.width = '0%';
                     convertBtn.disabled = false;
                 }
             } catch (error) {
-                alert('Error: ' + error.message);
+                // Format error message
+                let errorMsg = error.message;
+                if (errorMsg.includes('Unexpected token') || errorMsg.includes('not valid JSON')) {
+                    errorMsg = `❌ 服务器错误\n\n可能是文件总大小超过 100MB 限制。\n\n请减少文件数量后重试。`;
+                } else if (!errorMsg.startsWith('❌')) {
+                    errorMsg = `❌ ${errorMsg}`;
+                }
+                alert(errorMsg);
                 progressContainer.style.display = 'none';
                 progressFill.style.width = '0%';
                 convertBtn.disabled = false;
