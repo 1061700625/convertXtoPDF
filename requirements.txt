@@ -1,0 +1,6 @@
+flask>=2.0.0
+pypdf>=3.0.0
+reportlab>=4.0.0
+ebooklib>=0.18
+mobi>=0.1.1
+werkzeug>=2.0.0
