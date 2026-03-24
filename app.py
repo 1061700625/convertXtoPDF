@@ -513,7 +513,7 @@ HTML_TEMPLATE = """
             <ul style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
                 <li><strong>🔄 并发转换数:</strong> {{ max_workers }} 线程</li>
                 <li><strong>📦 单次最大文件数:</strong> {{ max_files }} 个文件</li>
-                <li><strong>📊 文件大小限制:</strong> {{ max_size }} MB</li>
+                <li><strong>📊 单次总文件大小:</strong> {{ max_size }} MB</li>
                 <li><strong>📂 临时目录:</strong> {{ upload_folder }}</li>
             </ul>
         </div>
@@ -639,12 +639,12 @@ HTML_TEMPLATE = """
             const pendingFiles = files.filter(f => f.status === 'pending');
             if (pendingFiles.length === 0) return;
             
-            // Check total file size before upload (max 100MB)
+            // Check total file size before upload (use server config value)
             const totalSize = pendingFiles.reduce((sum, f) => sum + f.file.size, 0);
-            const maxSize = 100 * 1024 * 1024; // 100MB
+            const maxSize = {{ max_size }} * 1024 * 1024; // From server config
             if (totalSize > maxSize) {
                 const sizeMB = (totalSize / 1024 / 1024).toFixed(2);
-                alert(`⚠️ 文件总大小超限！\n\n当前大小：${sizeMB} MB\n最大限制：100 MB\n\n请减少文件数量或使用更小的文件。`);
+                alert(`⚠️ 文件总大小超限！\n\n当前大小：${sizeMB} MB\n最大限制：{{ max_size }} MB\n\n请减少文件数量或使用更小的文件。`);
                 convertBtn.disabled = false;
                 return;
             }
@@ -675,7 +675,8 @@ HTML_TEMPLATE = """
                 const contentType = response.headers.get('content-type');
                 if (!contentType || !contentType.includes('application/json')) {
                     // Server returned HTML error (likely 413 Request Entity Too Large)
-                    throw new Error(`服务器返回错误 (HTTP ${response.status})\n\n可能是文件总大小超过 100MB 限制。\n\n当前文件总大小：${(totalSize / 1024 / 1024).toFixed(2)} MB`);
+                    const currentSizeMB = (totalSize / 1024 / 1024).toFixed(2);
+                    throw new Error(`服务器返回错误 (HTTP ${response.status})\n\n文件总大小 (${currentSizeMB} MB) 可能超过限制 ({{ max_size }} MB)。\n\n请减少文件数量后重试。`);
                 }
                 
                 const result = await response.json();
