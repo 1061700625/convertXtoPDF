@@ -43,6 +43,14 @@ app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB max
 app.config['UPLOAD_FOLDER'] = tempfile.gettempdir()
 
+# ============== 全局配置参数 ==============
+# 并发转换线程数 - 同时处理多少个文件的转换
+MAX_CONVERSION_WORKERS = 4
+
+# 单次转换最大文件数 - 一次上传最多多少个文件
+MAX_FILES_PER_CONVERSION = 20
+# ========================================
+
 ALLOWED_EXTENSIONS = {'epub', 'mobi'}
 
 def allowed_file(filename):
@@ -377,6 +385,23 @@ HTML_TEMPLATE = """
             margin-left: 10px;
         }
         
+        .delete-btn {
+            background: #ff4757;
+            color: white;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+        
+        .delete-btn:hover {
+            background: #ff6b81;
+            transform: translateY(-1px);
+        }
+        
         .btn {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
@@ -482,6 +507,17 @@ HTML_TEMPLATE = """
         <h1>📚 EPUB/MOBI to PDF Converter</h1>
         <p class="subtitle">Batch convert your ebooks to PDF format</p>
         
+        <!-- 配置信息显示 -->
+        <div class="info-box" style="margin-bottom: 20px;">
+            <h3>⚙️ 当前配置</h3>
+            <ul style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
+                <li><strong>🔄 并发转换数:</strong> {{ max_workers }} 线程</li>
+                <li><strong>📦 单次最大文件数:</strong> {{ max_files }} 个文件</li>
+                <li><strong>📊 文件大小限制:</strong> {{ max_size }} MB</li>
+                <li><strong>📂 临时目录:</strong> {{ upload_folder }}</li>
+            </ul>
+        </div>
+        
         <div class="upload-area" id="uploadArea">
             <div style="font-size: 48px; margin-bottom: 15px;">📁</div>
             <p><strong>Drag & drop files here</strong></p>
@@ -559,6 +595,18 @@ HTML_TEMPLATE = """
                 return ['epub', 'mobi'].includes(ext);
             });
             
+            // Check max files limit
+            if (files.length + newFiles.length > {{ max_files }}) {
+                alert(`⚠️ 文件数量超限！最多支持 {{ max_files }} 个文件，当前已选择 ${files.length} 个，还能添加 {{ max_files }} 个。`);
+                // Add only up to the limit
+                const canAdd = {{ max_files }} - files.length;
+                if (canAdd > 0) {
+                    newFiles.splice(0, newFiles.length - canAdd);
+                } else {
+                    return;
+                }
+            }
+            
             newFiles.forEach(file => {
                 files.push({
                     file: file,
@@ -625,16 +673,26 @@ HTML_TEMPLATE = """
                         return f;
                     });
                     
-                    // Show download links
+                    // Show download links with delete buttons
                     const pdfFiles = result.converted.map(c => c.pdf);
                     downloadLinks.innerHTML = result.converted.map(c => `
-                        <a href="/download/${encodeURIComponent(c.pdf)}" class="download-btn">
-                            📥 ${c.original} → ${c.pdf}
-                        </a>
+                        <div class="file-item" style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                            <a href="/download/${encodeURIComponent(c.pdf)}" class="download-btn" style="flex: 1;">
+                                📥 ${c.original} → ${c.pdf}
+                            </a>
+                            <button class="delete-btn" onclick="deleteFile('${encodeURIComponent(c.original)}', '${encodeURIComponent(c.pdf)}', this)" style="background: #ff4757; color: white; border: none; padding: 10px 16px; border-radius: 6px; cursor: pointer; font-size: 14px;">
+                                🗑️ 删除
+                            </button>
+                        </div>
                     `).join('') + `
-                        <a href="/download-all?files=${encodeURIComponent(pdfFiles.join(','))}" class="download-btn" style="background: #667eea;">
-                            📦 Download All (ZIP)
-                        </a>
+                        <div style="display: flex; gap: 10px; margin-top: 15px;">
+                            <a href="/download-all?files=${encodeURIComponent(pdfFiles.join(','))}" class="download-btn" style="flex: 1; background: #667eea; text-align: center;">
+                                📦 Download All (ZIP)
+                            </a>
+                            <button onclick="deleteAllFiles()" style="flex: 1; background: #ff4757; color: white; border: none; padding: 14px 20px; border-radius: 6px; cursor: pointer; font-size: 14px;">
+                                🗑️ 删除全部
+                            </button>
+                        </div>
                     `;
                     
                     downloadSection.style.display = 'block';
@@ -648,6 +706,65 @@ HTML_TEMPLATE = """
             progressContainer.style.display = 'none';
             updateFileList();
         });
+        
+        // Delete single file (both original and PDF)
+        async function deleteFile(encodedOriginal, encodedPdf, btnElement) {
+            const original = decodeURIComponent(encodedOriginal);
+            const pdf = decodeURIComponent(encodedPdf);
+            if (!confirm(`确定要删除 ${original} 和 ${pdf} 吗？`)) return;
+            
+            try {
+                const response = await fetch(`/delete-pair?original=${encodedOriginal}&pdf=${encodedPdf}`, {
+                    method: 'DELETE'
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    // Remove the file item from UI
+                    btnElement.parentElement.remove();
+                    
+                    // Check if no files left
+                    const remainingFiles = downloadLinks.querySelectorAll('.file-item');
+                    if (remainingFiles.length === 0) {
+                        downloadSection.style.display = 'none';
+                    }
+                    const deleted = result.deleted.filter(f => f.exists).map(f => f.name).join(', ');
+                    alert(`✅ 已删除：${deleted || '无文件'}`);
+                } else {
+                    alert(`❌ 删除失败：${result.error}`);
+                }
+            } catch (error) {
+                alert(`❌ 删除错误：${error.message}`);
+            }
+        }
+        
+        // Delete all files
+        async function deleteAllFiles() {
+            const fileCount = downloadLinks.querySelectorAll('.file-item').length;
+            if (fileCount === 0) {
+                alert('没有可删除的文件');
+                return;
+            }
+            
+            if (!confirm(`确定要删除所有 ${fileCount} 个 PDF 文件吗？`)) return;
+            
+            try {
+                const response = await fetch('/delete-all', {
+                    method: 'DELETE'
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    downloadLinks.innerHTML = '';
+                    downloadSection.style.display = 'none';
+                    alert(`✅ 已删除所有 ${result.deleted} 个文件`);
+                } else {
+                    alert(`❌ 删除失败：${result.error}`);
+                }
+            } catch (error) {
+                alert(`❌ 删除错误：${error.message}`);
+            }
+        }
     </script>
 </body>
 </html>
@@ -655,67 +772,111 @@ HTML_TEMPLATE = """
 
 @app.route('/')
 def index():
-    return render_template_string(HTML_TEMPLATE)
+    return render_template_string(HTML_TEMPLATE,
+        max_workers=MAX_CONVERSION_WORKERS,
+        max_files=MAX_FILES_PER_CONVERSION,
+        max_size=app.config['MAX_CONTENT_LENGTH'] // (1024 * 1024),
+        upload_folder=app.config['UPLOAD_FOLDER']
+    )
 
 @app.route('/convert', methods=['POST'])
 def convert():
     import uuid
     import traceback
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    
     if 'files' not in request.files:
         return {'success': False, 'error': 'No files uploaded'}, 400
     
     uploaded_files = request.files.getlist('files')
-    converted = []
     
-    for file in uploaded_files:
+    # Check max files limit
+    if len(uploaded_files) > MAX_FILES_PER_CONVERSION:
+        return {
+            'success': False, 
+            'error': f'文件数量超限！最多支持 {MAX_FILES_PER_CONVERSION} 个文件，当前上传了 {len(uploaded_files)} 个。'
+        }, 400
+    
+    converted = []
+    conversion_tasks = []
+    
+    # Helper function for single file conversion
+    def convert_single_file(file):
         try:
             if file and file.filename and allowed_file(file.filename):
-                # Get original filename and extension
                 original_filename = file.filename
                 if '.' not in original_filename:
-                    continue  # Skip files without extension
+                    return None
                 
                 file_type = original_filename.rsplit('.', 1)[1].lower()
-                
-                # Generate safe filename: use UUID to avoid issues with non-ASCII chars
                 safe_name = f"{uuid.uuid4().hex}.{file_type}"
-                filename = safe_name
                 
-                # Create temp files
                 with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{file_type}') as tmp_input:
                     file.save(tmp_input.name)
                     input_path = tmp_input.name
                 
-                # Generate output PDF filename from original filename
                 original_stem = Path(original_filename).stem
-                # Sanitize stem for filesystem safety
                 safe_stem = ''.join(c if c.isalnum() or c in '-_' else '_' for c in original_stem)
                 output_filename = f"{safe_stem}.pdf"
+                safe_original = f"{uuid.uuid4().hex}_{original_filename}"
+                original_save_path = os.path.join(app.config['UPLOAD_FOLDER'], safe_original)
                 
                 with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_output:
                     output_path = tmp_output.name
                 
-                # Convert
                 success, message = convert_file(input_path, output_path, file_type)
                 
                 if success:
-                    # Move to permanent location
                     final_path = os.path.join(app.config['UPLOAD_FOLDER'], output_filename)
-                    os.rename(output_path, final_path)
-                    converted.append({
+                    
+                    # Cross-platform file move (Windows doesn't allow rename over existing file)
+                    try:
+                        if os.path.exists(final_path):
+                            os.remove(final_path)
+                        os.rename(output_path, final_path)
+                    except OSError:
+                        # Fallback: copy then delete
+                        import shutil
+                        shutil.copy2(output_path, final_path)
+                        os.remove(output_path)
+                    
+                    # Move original file
+                    try:
+                        if os.path.exists(original_save_path):
+                            os.remove(original_save_path)
+                        os.rename(input_path, original_save_path)
+                    except OSError:
+                        import shutil
+                        shutil.copy2(input_path, original_save_path)
+                        os.remove(input_path)
+                    
+                    return {
                         'original': original_filename,
+                        'original_safe': safe_original,
                         'pdf': output_filename
-                    })
-                
-                # Cleanup input
-                try:
-                    os.unlink(input_path)
-                except:
-                    pass
+                    }
+                else:
+                    try:
+                        os.unlink(input_path)
+                    except:
+                        pass
+            return None
         except Exception as e:
-            print(f"Error processing file {file.filename}: {e}")
+            print(f"Error converting {file.filename}: {e}")
             print(traceback.format_exc())
-            continue
+            return None
+    
+    # Use thread pool for concurrent conversion
+    with ThreadPoolExecutor(max_workers=MAX_CONVERSION_WORKERS) as executor:
+        # Submit all conversion tasks
+        future_to_file = {executor.submit(convert_single_file, file): file 
+                         for file in uploaded_files}
+        
+        # Collect results as they complete
+        for future in as_completed(future_to_file):
+            result = future.result()
+            if result:
+                converted.append(result)
     
     return {
         'success': True,
@@ -769,6 +930,85 @@ def download_all():
         as_attachment=True,
         download_name='books.zip'
     )
+
+@app.route('/delete-pair', methods=['DELETE'])
+def delete_file_pair():
+    """Delete both original file (epub/mobi) and converted PDF"""
+    from urllib.parse import unquote
+    
+    original = unquote(request.args.get('original', ''))
+    pdf = unquote(request.args.get('pdf', ''))
+    
+    if not original or not pdf:
+        return {'success': False, 'error': 'Missing original or pdf parameter'}, 400
+    
+    deleted = []
+    
+    try:
+        # Delete PDF
+        pdf_path = os.path.join(app.config['UPLOAD_FOLDER'], pdf)
+        if os.path.exists(pdf_path):
+            os.remove(pdf_path)
+            deleted.append({'name': pdf, 'exists': True})
+            print(f"Deleted PDF: {pdf_path}")
+        else:
+            deleted.append({'name': pdf, 'exists': False})
+        
+        # Delete original file (search for file with original name)
+        upload_folder = app.config['UPLOAD_FOLDER']
+        for filename in os.listdir(upload_folder):
+            # Check if this file ends with the original filename
+            if filename.endswith(f'_{original}'):
+                original_path = os.path.join(upload_folder, filename)
+                if os.path.exists(original_path):
+                    os.remove(original_path)
+                    deleted.append({'name': original, 'exists': True})
+                    print(f"Deleted original: {original_path}")
+                else:
+                    deleted.append({'name': original, 'exists': False})
+                break
+        else:
+            # File not found
+            deleted.append({'name': original, 'exists': False})
+        
+        return {'success': True, 'deleted': deleted}
+    except Exception as e:
+        print(f"Error deleting file pair: {e}")
+        return {'success': False, 'error': str(e)}, 500
+
+@app.route('/delete-all', methods=['DELETE'])
+def delete_all_files():
+    """Delete all PDF files and original files"""
+    try:
+        upload_folder = app.config['UPLOAD_FOLDER']
+        deleted_count = 0
+        
+        # Delete all PDF files
+        for filename in os.listdir(upload_folder):
+            if filename.endswith('.pdf'):
+                filepath = os.path.join(upload_folder, filename)
+                try:
+                    os.remove(filepath)
+                    deleted_count += 1
+                    print(f"Deleted PDF: {filepath}")
+                except Exception as e:
+                    print(f"Error deleting {filepath}: {e}")
+        
+        # Delete all original files (pattern: uuid_originalname)
+        for filename in os.listdir(upload_folder):
+            if '_' in filename and (filename.endswith('.epub') or filename.endswith('.mobi')):
+                filepath = os.path.join(upload_folder, filename)
+                try:
+                    os.remove(filepath)
+                    deleted_count += 1
+                    print(f"Deleted original: {filepath}")
+                except Exception as e:
+                    print(f"Error deleting {filepath}: {e}")
+        
+        return {'success': True, 'deleted': deleted_count}
+    except Exception as e:
+        print(f"Error in delete-all: {e}")
+        return {'success': False, 'error': str(e)}, 500
 
 if __name__ == '__main__':
     print("📚 EPUB/MOBI to PDF Converter")
