@@ -643,10 +643,17 @@ HTML_TEMPLATE = """
             downloadSection.style.display = 'none';
             convertBtn.disabled = true;
             
+            const totalFiles = pendingFiles.length;
+            
             const formData = new FormData();
             pendingFiles.forEach(item => {
                 formData.append('files', item.file);
             });
+            
+            // Show loading state with animation
+            progressFill.style.width = '30%';
+            progressFill.style.transition = 'width 2s ease-in-out';
+            progressText.textContent = `🔄 正在转换 ${totalFiles} 个文件，请稍候...`;
             
             try {
                 const response = await fetch('/convert', {
@@ -656,6 +663,9 @@ HTML_TEMPLATE = """
                 
                 const result = await response.json();
                 
+                // Conversion complete
+                progressFill.style.width = '100%';
+                
                 if (result.success) {
                     if (result.converted.length === 0) {
                         alert('转换失败：没有成功转换的文件');
@@ -663,6 +673,8 @@ HTML_TEMPLATE = """
                         convertBtn.disabled = false;
                         return;
                     }
+                    
+                    progressText.textContent = `✅ 转换完成！成功 ${result.converted.length}/${totalFiles} 个`;
                     
                     // Update file statuses
                     files = files.map(f => {
@@ -696,14 +708,26 @@ HTML_TEMPLATE = """
                     `;
                     
                     downloadSection.style.display = 'block';
+                    
+                    // Hide progress after delay
+                    setTimeout(() => {
+                        progressContainer.style.display = 'none';
+                        progressFill.style.width = '0%';
+                        progressFill.style.transition = 'width 0.3s ease';
+                    }, 2000);
                 } else {
                     alert('Conversion failed: ' + result.error);
+                    progressContainer.style.display = 'none';
+                    progressFill.style.width = '0%';
+                    convertBtn.disabled = false;
                 }
             } catch (error) {
                 alert('Error: ' + error.message);
+                progressContainer.style.display = 'none';
+                progressFill.style.width = '0%';
+                convertBtn.disabled = false;
             }
             
-            progressContainer.style.display = 'none';
             updateFileList();
         });
         
