@@ -2,6 +2,8 @@
 
 一个基于 Flask 的网页应用，支持批量将 EPUB 和 MOBI 格式的电子书转换为 PDF。
 
+> 网上这么多收费的，又没什么技术难度，那就自己做好了
+
 ## ✨ 功能特性
 
 - 🔄 **批量转换** - 一次上传多个文件，自动队列处理
@@ -16,7 +18,6 @@
 ### 1. 安装依赖
 
 ```bash
-cd epub-mobi-to-pdf
 pip install -r requirements.txt
 ```
 
@@ -28,7 +29,7 @@ python app.py
 
 ### 3. 打开浏览器
 
-访问 http://localhost:5000
+访问 `http://localhost:5000`
 
 ## 📋 使用说明
 
