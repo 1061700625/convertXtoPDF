@@ -1,60 +1,70 @@
 #!/bin/bash
-# One-click startup script for EPUB/MOBI to PDF Converter
 
-echo "📚 EPUB/MOBI to PDF Converter"
-echo "=============================="
+echo "============================================================"
+echo "EPUB/MOBI to PDF Converter"
+echo "============================================================"
 echo ""
 
-cd "$(dirname "$0")"
+# Check if virtual environment exists
+if [ -f "venv/bin/python" ]; then
+    echo "[OK] Virtual environment found."
+    echo ""
+    echo "[INFO] Starting application..."
+    echo ""
+    
+    # Run application in desktop mode
+    venv/bin/python app.py --mode desktop
+    
+    exit 0
+fi
 
-# Kill existing processes
-pkill -f "python.*app.py" 2>/dev/null
-pkill -f cloudflared 2>/dev/null
-sleep 1
+echo "[INFO] Virtual environment not found."
+echo "[INFO] First-time setup required..."
+echo ""
 
-# Start Flask
-echo "🚀 Starting Flask..."
-nohup python3 app.py > /tmp/flask.log 2>&1 &
-FLASK_PID=$!
-sleep 3
-
-if ps -p $FLASK_PID > /dev/null; then
-    echo "✅ Flask running (PID: $FLASK_PID)"
-else
-    echo "❌ Flask failed to start"
-    cat /tmp/flask.log
+# Check if Python is installed
+if ! command -v python3 &> /dev/null; then
+    echo "[ERROR] Python3 not found!"
+    echo ""
+    echo "Please install Python 3.8+ from:"
+    echo "  - macOS: brew install python3"
+    echo "  - Ubuntu/Debian: sudo apt install python3 python3-venv"
+    echo "  - Fedora/RHEL: sudo dnf install python3 python3-pip"
+    echo ""
     exit 1
 fi
 
-# Start Cloudflare Tunnel
-echo "🌐 Starting Cloudflare Tunnel..."
-cd /tmp
-if [ ! -f cloudflared-linux-amd64 ]; then
-    echo "⬇️  Downloading cloudflared..."
-    curl -sLO https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
-    chmod +x cloudflared-linux-amd64
+echo "[OK] Python3 found"
+python3 --version
+echo ""
+
+# Create virtual environment
+echo "[INFO] Creating virtual environment..."
+python3 -m venv venv
+
+echo "[INFO] Installing dependencies..."
+echo "This may take 2-3 minutes..."
+echo ""
+venv/bin/pip install -r requirements.txt
+
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "[ERROR] Failed to install dependencies!"
+    echo "Please check your network connection and try again."
+    exit 1
 fi
 
-nohup ./cloudflared-linux-amd64 tunnel --url http://localhost:5000 > /tmp/cf.log 2>&1 &
-CF_PID=$!
-sleep 6
+echo ""
+echo "[OK] Dependencies installed successfully!"
+echo ""
+echo "============================================================"
+echo "[INFO] First-time setup complete!"
+echo "============================================================"
+echo ""
+echo "Next time, the application will start directly."
+echo ""
+echo "[INFO] Starting application..."
+echo ""
 
-# Get tunnel URL
-TUNNEL_URL=$(grep "trycloudflare.com" /tmp/cf.log | grep -o 'https://[^[:space:]]*trycloudflare.com' | head -1)
-
-if [ -n "$TUNNEL_URL" ]; then
-    echo "✅ Cloudflare Tunnel running"
-    echo ""
-    echo "=============================="
-    echo "🌐 Public URL: $TUNNEL_URL"
-    echo "🏠 Local URL: http://localhost:5000"
-    echo "=============================="
-    echo ""
-    echo "Press Ctrl+C to stop all services"
-    
-    # Keep running
-    wait
-else
-    echo "⚠️  Tunnel URL not found, check /tmp/cf.log"
-    echo "Local access: http://localhost:5000"
-fi
+# Run application in desktop mode
+venv/bin/python3 app.py --mode desktop

@@ -1,58 +1,169 @@
 # 📚 EPUB/MOBI to PDF 批量转换器
 
-一个基于 Flask 的网页应用，支持批量将 EPUB 和 MOBI 格式的电子书转换为 PDF。
+一个简单好用的电子书格式转换工具，支持 EPUB 和 MOBI 转 PDF。
+
+---
 
 ## ✨ 功能特性
 
-- 🔄 **批量转换** - 一次上传多个文件，自动队列处理
-- 📤 **拖拽上传** - 支持拖拽文件到上传区域
-- 📥 **打包下载** - 转换完成后可单独下载或打包为 ZIP 下载
+- 🔄 **批量转换** - 一次上传多个文件
+- 📤 **拖拽上传** - 支持拖拽文件
+- 📥 **打包下载** - 可打包为 ZIP 下载
 - 🎨 **现代 UI** - 渐变设计，响应式布局
-- 🔒 **本地处理** - 所有文件在本地处理，不上传到外部服务器
-- 📖 **中文支持** - 自动检测并使用系统中文字体
+- 🔒 **本地处理** - 文件不上传服务器
+- 📖 **中文支持** - 自动使用中文字体
+- 🖥️ **双模式** - 网页版 + 桌面版
+
+---
 
 ## 🚀 快速开始
 
-### 1. 安装依赖
+### 方法 1：直接运行（需要手动安装依赖）
 
 ```bash
-cd epub-mobi-to-pdf
+# 安装依赖
 pip install -r requirements.txt
-```
 
-### 2. 运行应用
-
-```bash
+# 运行（网页版，自动打开浏览器）
 python app.py
+
+# 或桌面版
+python app.py --mode desktop
 ```
 
-### 3. 打开浏览器
+### 方法 2：一键运行（推荐）
 
-访问 http://localhost:5000
+**首次运行会自动创建虚拟环境并安装依赖**，之后直接启动。
+
+**Windows**:
+```cmd
+run.bat
+```
+
+**Mac / Linux**:
+```bash
+chmod +x run.sh
+./run.sh
+```
+
+**运行逻辑**：
+1. 检查是否有 `venv` 文件夹 → 有则直接运行
+2. 没有 `venv` → 检查系统 Python
+3. 没有 Python → 提示安装
+4. 有 Python → 创建 venv 并安装依赖
+
+---
 
 ## 📋 使用说明
 
-1. **上传文件** - 点击上传区域或拖拽 EPUB/MOBI 文件
-2. **开始转换** - 点击 "Convert to PDF" 按钮
-3. **下载结果** - 转换完成后，可单独下载或打包下载所有 PDF
+### 上传文件
+
+1. 点击上传区域选择文件
+2. 或直接拖拽 EPUB/MOBI 文件
+3. 支持批量上传（最多 20 个）
+
+### 转换
+
+1. 点击 "Convert to PDF" 开始转换
+2. 等待转换完成
+3. 可单独下载或打包下载
+
+---
 
 ## ⚙️ 配置选项
 
-### 文件大小限制
-
-默认最大上传文件大小为 100MB，可在 `app.py` 中修改：
+在 `app.py` 中修改：
 
 ```python
-app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB
+# 文件大小限制（默认 100MB）
+app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
+
+# 并发转换数（默认 4）
+MAX_CONVERSION_WORKERS = 4
+
+# 单次最大文件数（默认 20）
+MAX_FILES_PER_CONVERSION = 20
 ```
 
-### 临时文件存储
+### 命令行参数
 
-转换后的 PDF 保存在系统临时目录，可通过修改 `UPLOAD_FOLDER` 指定：
+```bash
+# 查看帮助
+python app.py --help
 
-```python
-app.config['UPLOAD_FOLDER'] = '/path/to/your/folder'
+# 网页版，指定端口
+python app.py --port 8080
+
+# 桌面版
+python app.py --mode desktop --port 8080
 ```
+
+---
+
+## 📦 分发说明
+
+### 打包方法
+
+1. 压缩**整个项目文件夹**为 ZIP
+2. 发送给用户
+
+### 用户使用
+
+1. 解压 ZIP 文件
+2. 双击运行：
+   - **Windows**: `run.bat`
+   - **Mac/Linux**: `./run.sh`
+3. 首次运行会自动创建虚拟环境并安装依赖（约 40MB）
+4. 之后直接启动（不再检查 Python）
+
+### 系统要求
+
+**首次运行**：
+- 需要 Python 3.8+（用于创建虚拟环境）
+- 或已有虚拟环境（`venv/` 文件夹）
+
+**后续运行**：
+- 无需 Python（使用虚拟环境中的 Python）
+- 直接使用 `run.bat` 或 `run.sh` 启动
+
+### 安装 Python（仅首次需要）
+
+**Windows**:
+1. 访问 https://www.python.org/downloads/
+2. 下载并安装 Python 3.8+
+3. ⚠️ 安装时务必勾选 "Add Python to PATH"
+
+**macOS**:
+```bash
+brew install python3
+```
+
+**Linux (Ubuntu/Debian)**:
+```bash
+sudo apt install python3 python3-pip python3-venv
+```
+
+---
+
+## ⚠️ 注意事项
+
+### 转换限制
+
+- **复杂排版** - 可能丢失部分格式
+- **加密书籍** - 无法转换 DRM 保护的电子书
+- **图片密集型** - 图片较多的书效果可能不佳
+
+### 字体依赖
+
+中文转换需要系统安装中文字体：
+
+| 平台 | 状态 |
+|------|------|
+| Windows | ✅ 系统自带 |
+| macOS | ✅ 系统自带 |
+| Linux | 需安装：`apt install fonts-wqy-microhei` |
+
+---
 
 ## 🔧 技术栈
 
@@ -60,62 +171,54 @@ app.config['UPLOAD_FOLDER'] = '/path/to/your/folder'
 - **PDF 生成**: ReportLab, pypdf
 - **EPUB 解析**: ebooklib
 - **MOBI 解析**: mobi
-- **前端**: 原生 HTML/CSS/JavaScript
+- **桌面模式**: pywebview
+- **前端**: HTML/CSS/JavaScript
 
-## ⚠️ 注意事项
-
-1. **字体依赖**: 中文转换需要系统安装中文字体
-   - Linux: `apt install fonts-wqy-microhei` 或 `apt install fonts-noto-cjk`
-   - macOS: 系统自带
-   - Windows: 系统自带
-
-2. **转换限制**: 
-   - 复杂排版的 EPUB 可能会丢失部分格式
-   - 加密的电子书无法转换
-   - 图片密集型书籍可能转换效果不佳
-
-3. **文件清理**: 转换后的 PDF 保存在临时目录，建议定期清理
+---
 
 ## 📁 项目结构
 
 ```
 epub-mobi-to-pdf/
-├── app.py              # 主应用文件
-├── requirements.txt    # Python 依赖
-└── README.md          # 说明文档
+├── app.py              # 主应用
+├── run.bat            # Windows 启动脚本
+├── run.sh             # Mac/Linux 启动脚本
+├── requirements.txt   # Python 依赖
+├── README.md          # 本文档
+├── FIXES.md           # Bug 修复记录
+├── RUNNING.md         # 运行状态
+└── venv/              # 虚拟环境（首次运行后生成）
 ```
 
-## 🛠️ 开发
+---
 
-### 添加新格式支持
+## 🐛 已知问题
 
-在 `convert_file()` 函数中添加新的转换逻辑：
+详见 [FIXES.md](FIXES.md)
 
-```python
-def convert_file(input_path, output_path, file_type):
-    if file_type == 'new_format':
-        # 添加转换逻辑
-        pass
+### 已修复
+
+- ✅ 中文文件名支持
+- ✅ ZIP 下载为空
+- ✅ Windows 编码问题
+- ✅ 自动打开浏览器
+- ✅ 简化为单文件入口
+
+---
+
+## 🛑 停止服务
+
+```bash
+# 停止 Flask 服务
+pkill -f "python.*app.py"
 ```
 
-### 自定义 PDF 样式
-
-修改 `create_pdf_from_chapters()` 函数中的样式定义：
-
-```python
-title_style = ParagraphStyle(
-    'CustomTitle',
-    parent=styles['Heading1'],
-    fontName=FONT_NAME,
-    fontSize=24,  # 修改字号
-    # ... 其他样式
-)
-```
+---
 
 ## 📝 许可证
 
 MIT License
 
-## 🤝 贡献
+---
 
-欢迎提交 Issue 和 Pull Request！
+**最后更新**: 2026-03-26

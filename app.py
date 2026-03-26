@@ -513,7 +513,7 @@ HTML_TEMPLATE = """
             <ul style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
                 <li><strong>🔄 并发转换数:</strong> {{ max_workers }} 线程</li>
                 <li><strong>📦 单次最大文件数:</strong> {{ max_files }} 个文件</li>
-                <li><strong>📊 单次总文件大小:</strong> {{ max_size }} MB</li>
+                <li><strong>📊 文件大小限制:</strong> {{ max_size }} MB</li>
                 <li><strong>📂 临时目录:</strong> {{ upload_folder }}</li>
             </ul>
         </div>
@@ -1060,7 +1060,95 @@ def delete_all_files():
         return {'success': False, 'error': str(e)}, 500
 
 if __name__ == '__main__':
-    print("📚 EPUB/MOBI to PDF Converter")
-    print("Starting server on http://localhost:5000")
-    print("Press Ctrl+C to stop")
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    import argparse
+    import threading
+    import time
+    
+    # Ensure UTF-8 output on Windows
+    if sys.platform == 'win32':
+        import io
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+    
+    parser = argparse.ArgumentParser(description='EPUB/MOBI to PDF Converter')
+    parser.add_argument('--mode', choices=['web', 'desktop'], default='web',
+                       help='运行模式：web=网页版，desktop=桌面版')
+    parser.add_argument('--host', default='0.0.0.0', help='监听地址 (仅 web 模式)')
+    parser.add_argument('--port', type=int, default=5000, help='监听端口')
+    args = parser.parse_args()
+    
+    print("=" * 60)
+    print("EPUB/MOBI to PDF Converter")
+    print("=" * 60)
+    
+    if args.mode == 'web':
+        # Web mode: run Flask server
+        print(f"[INFO] Starting web server on http://{args.host}:{args.port}")
+        print("[INFO] Opening browser...")
+        print("[INFO] Press Ctrl+C to stop")
+        print("=" * 60)
+        
+        # Open browser after a short delay
+        def open_browser():
+            time.sleep(1.5)
+            import webbrowser
+            webbrowser.open(f'http://{args.host}:{args.port}')
+        
+        threading.Thread(target=open_browser, daemon=True).start()
+        app.run(host=args.host, port=args.port, debug=False)
+    
+    else:
+        # Desktop mode: run Flask in background + WebView window
+        print("[INFO] Starting desktop application...")
+        print(f"[INFO] Conversion Workers: {MAX_CONVERSION_WORKERS}")
+        print(f"[INFO] Max Files: {MAX_FILES_PER_CONVERSION}")
+        print("=" * 60)
+        
+        # Start Flask in background thread
+        flask_thread = threading.Thread(
+            target=lambda: app.run(host='127.0.0.1', port=args.port, debug=False, use_reloader=False),
+            daemon=True
+        )
+        flask_thread.start()
+        
+        # Wait for Flask to start
+        print("[INFO] Waiting for Flask to start...")
+        time.sleep(2)
+        
+        try:
+            import webview
+            
+            # Create WebView window
+            window_kwargs = {
+                'title': 'EPUB/MOBI to PDF Converter',
+                'url': f'http://127.0.0.1:{args.port}',
+                'width': 1200,
+                'height': 800,
+                'min_size': (800, 600),
+                'resizable': True,
+                'fullscreen': False,
+                'text_select': True,
+                'background_color': '#FFFFFF',
+            }
+            
+            # Try to add icon if it exists
+            if os.path.exists('icon.ico') and sys.platform == 'win32':
+                try:
+                    window_kwargs['icon'] = 'icon.ico'
+                except:
+                    pass
+            
+            print("[INFO] Creating WebView window...")
+            window = webview.create_window(**window_kwargs)
+            
+            print("[INFO] Opening desktop window...")
+            webview.start(
+                debug=False,
+                gui='edgechromium' if sys.platform == 'win32' else None,
+            )
+        
+        except ImportError:
+            print("[ERROR] pywebview not installed!")
+            print("[INFO] Install with: pip install pywebview")
+            print("[INFO] Or run in web mode: python app.py --mode web")
+            sys.exit(1)
