@@ -66,7 +66,13 @@ chmod +x run.sh
 
 1. 点击 "Convert to PDF" 开始转换
 2. 等待转换完成
-3. 可单独下载或打包下载
+3. 点击下载按钮
+4. 文件会保存到系统的"下载"文件夹
+
+**下载位置**：
+- Windows: `C:\Users\你的用户名\Downloads`
+- Mac: `/Users/你的用户名/Downloads`
+- Linux: `/home/你的用户名/Downloads`
 
 ---
 

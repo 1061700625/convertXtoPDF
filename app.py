@@ -11,6 +11,7 @@ import zipfile
 from pathlib import Path
 from flask import Flask, request, render_template_string, send_file
 from werkzeug.utils import secure_filename
+import webbrowser
 
 # Import conversion libraries
 try:
@@ -542,6 +543,13 @@ HTML_TEMPLATE = """
         <div class="download-section" id="downloadSection">
             <h3>✅ Conversion Complete!</h3>
             <div id="downloadLinks"></div>
+            <div style="margin-top: 15px; padding: 10px; background: #e8f5e9; border-radius: 6px; border-left: 4px solid #4caf50;">
+                <strong>✅ 下载说明：</strong><br>
+                <span style="font-size: 13px; color: #2e7d32;">
+                    <strong>桌面版：</strong>文件自动保存到"下载"文件夹，完成后弹窗提示。<br>
+                    <strong>网页版：</strong>使用浏览器下载，可在浏览器下载栏查看。
+                </span>
+            </div>
         </div>
         
         <div class="info-box">
@@ -705,20 +713,25 @@ HTML_TEMPLATE = """
                     
                     // Show download links with delete buttons
                     const pdfFiles = result.converted.map(c => c.pdf);
+                    
                     downloadLinks.innerHTML = result.converted.map(c => `
                         <div class="file-item" style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
-                            <a href="/download/${encodeURIComponent(c.pdf)}" class="download-btn" style="flex: 1;">
+                            <button onclick="downloadFile('${c.pdf}')" 
+                               class="download-btn" 
+                               style="flex: 1; cursor: pointer;">
                                 📥 ${c.original} → ${c.pdf}
-                            </a>
+                            </button>
                             <button class="delete-btn" onclick="deleteFile('${encodeURIComponent(c.original)}', '${encodeURIComponent(c.pdf)}', this)" style="background: #ff4757; color: white; border: none; padding: 10px 16px; border-radius: 6px; cursor: pointer; font-size: 14px;">
                                 🗑️ 删除
                             </button>
                         </div>
                     `).join('') + `
                         <div style="display: flex; gap: 10px; margin-top: 15px;">
-                            <a href="/download-all?files=${encodeURIComponent(pdfFiles.join(','))}" class="download-btn" style="flex: 1; background: #667eea; text-align: center;">
+                            <button onclick="downloadAll('${pdfFiles.join(',')}')" 
+                               class="download-btn" 
+                               style="flex: 1; background: #667eea; text-align: center; cursor: pointer;">
                                 📦 Download All (ZIP)
-                            </a>
+                            </button>
                             <button onclick="deleteAllFiles()" style="flex: 1; background: #ff4757; color: white; border: none; padding: 14px 20px; border-radius: 6px; cursor: pointer; font-size: 14px;">
                                 🗑️ 删除全部
                             </button>
@@ -812,6 +825,66 @@ HTML_TEMPLATE = """
                 }
             } catch (error) {
                 alert(`❌ 删除错误：${error.message}`);
+            }
+        }
+        
+        // Download single file
+        async function downloadFile(filename) {
+            try {
+                // Detect desktop mode
+                const isDesktop = window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost';
+                
+                const headers = { 'X-Desktop-Mode': isDesktop };
+                
+                const response = await fetch(`/download/${encodeURIComponent(filename)}`, { headers });
+                
+                if (isDesktop) {
+                    // Desktop mode: API returns JSON
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        alert(`✅ 文件已保存！\n\n📂 ${result.path}`);
+                    } else {
+                        alert(`❌ 下载失败：${result.error}`);
+                    }
+                } else {
+                    // Web mode: browser handles download
+                    // No feedback needed
+                }
+            } catch (error) {
+                alert(`❌ 下载错误：${error.message}`);
+            }
+        }
+        
+        // Download all files as ZIP
+        async function downloadAll(filesStr) {
+            // Detect desktop mode
+            const isDesktop = window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost';
+            
+            try {
+                const headers = { 'X-Desktop-Mode': isDesktop };
+                
+                const response = await fetch(`/download-all?files=${encodeURIComponent(filesStr)}`, { headers });
+                
+                if (isDesktop) {
+                    // Desktop mode: API returns JSON
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        alert(`✅ ZIP 文件已保存！\n\n📂 ${result.path}`);
+                    } else {
+                        alert(`❌ 下载失败：${result.error}`);
+                    }
+                } else {
+                    // Web mode: browser handles download
+                    if (!response.ok) {
+                        const error = await response.json();
+                        alert(`❌ 下载失败：${error.error}`);
+                    }
+                    // No feedback needed for successful web download
+                }
+            } catch (error) {
+                alert(`❌ 下载错误：${error.message}`);
             }
         }
     </script>
@@ -935,20 +1008,51 @@ def convert():
 @app.route('/download/<path:filename>')
 def download(filename):
     from urllib.parse import unquote
+    import shutil
+    
     # Decode URL-encoded filename (for non-ASCII chars)
     filename = unquote(filename)
-    # Don't use secure_filename here as it breaks non-ASCII filenames
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    if os.path.exists(filepath):
-        return send_file(filepath, as_attachment=True, download_name=filename)
-    print(f"File not found: {filepath}")
-    print(f"Available files: {os.listdir(app.config['UPLOAD_FOLDER'])}")
-    return {'error': 'File not found', 'path': filepath}, 404
+    
+    # Source file path
+    src_filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    
+    if not os.path.exists(src_filepath):
+        print(f"File not found: {src_filepath}")
+        return {'error': 'File not found', 'path': src_filepath}, 404
+    
+    # Check if running in desktop mode (WebView)
+    # Desktop mode: save to Downloads folder and return JSON
+    # Web mode: use browser download
+    is_desktop = request.headers.get('X-Desktop-Mode') == 'true'
+    
+    if is_desktop:
+        # Desktop mode: save to Downloads folder
+        downloads_folder = os.path.join(os.path.expanduser('~'), 'Downloads')
+        if not os.path.exists(downloads_folder):
+            os.makedirs(downloads_folder)
+        
+        dst_filepath = os.path.join(downloads_folder, filename)
+        
+        try:
+            shutil.copy2(src_filepath, dst_filepath)
+            print(f"[INFO] File saved to: {dst_filepath}")
+            return {
+                'success': True,
+                'message': 'File saved to Downloads folder',
+                'path': dst_filepath
+            }
+        except Exception as e:
+            print(f"[ERROR] Failed to save file: {e}")
+            return {'error': str(e)}, 500
+    else:
+        # Web mode: use browser download
+        return send_file(src_filepath, as_attachment=True, download_name=filename)
 
 @app.route('/download-all')
 def download_all():
     import zipfile
     import io
+    import shutil
     from urllib.parse import unquote
     
     files_raw = request.args.get('files', '')
@@ -956,29 +1060,62 @@ def download_all():
     if not files or files == ['']:
         return {'error': 'No files specified'}, 400
     
-    # Create ZIP in memory
-    zip_buffer = io.BytesIO()
+    # Check if running in desktop mode (WebView)
+    is_desktop = request.headers.get('X-Desktop-Mode') == 'true'
     
-    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
-        for filename in files:
-            if not filename:
-                continue
-            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            if os.path.exists(filepath):
-                zf.write(filepath, filename)
-            else:
-                print(f"Warning: File not found: {filepath}")
-                print(f"Available: {os.listdir(app.config['UPLOAD_FOLDER'])}")
-    
-    # Seek to beginning
-    zip_buffer.seek(0)
-    
-    return send_file(
-        zip_buffer,
-        mimetype='application/zip',
-        as_attachment=True,
-        download_name='books.zip'
-    )
+    if is_desktop:
+        # Desktop mode: save to Downloads folder
+        downloads_folder = os.path.join(os.path.expanduser('~'), 'Downloads')
+        if not os.path.exists(downloads_folder):
+            os.makedirs(downloads_folder)
+        
+        zip_filename = 'books.zip'
+        zip_filepath = os.path.join(downloads_folder, zip_filename)
+        
+        try:
+            with zipfile.ZipFile(zip_filepath, 'w', zipfile.ZIP_DEFLATED) as zf:
+                for filename in files:
+                    if not filename:
+                        continue
+                    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                    if os.path.exists(filepath):
+                        zf.write(filepath, filename)
+                    else:
+                        print(f"Warning: File not found: {filepath}")
+            
+            print(f"[INFO] ZIP saved to: {zip_filepath}")
+            return {
+                'success': True,
+                'message': 'ZIP file created',
+                'path': zip_filepath
+            }
+        except Exception as e:
+            print(f"[ERROR] Failed to create ZIP: {e}")
+            return {'error': str(e)}, 500
+    else:
+        # Web mode: use browser download
+        zip_buffer = io.BytesIO()
+        
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for filename in files:
+                if not filename:
+                    continue
+                filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                if os.path.exists(filepath):
+                    zf.write(filepath, filename)
+                else:
+                    print(f"Warning: File not found: {filepath}")
+        
+        zip_buffer.seek(0)
+        
+        return send_file(
+            zip_buffer,
+            mimetype='application/zip',
+            as_attachment=True,
+            download_name='books.zip'
+        )
+
+
 
 @app.route('/delete-pair', methods=['DELETE'])
 def delete_file_pair():
@@ -1091,8 +1228,8 @@ if __name__ == '__main__':
         # Open browser after a short delay
         def open_browser():
             time.sleep(1.5)
-            import webbrowser
-            webbrowser.open(f'http://{args.host}:{args.port}')
+            browser_host = 'localhost' if args.host == '0.0.0.0' else args.host
+            webbrowser.open(f'http://{browser_host}:{args.port}')
         
         threading.Thread(target=open_browser, daemon=True).start()
         app.run(host=args.host, port=args.port, debug=False)
